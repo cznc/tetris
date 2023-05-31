@@ -156,7 +156,8 @@ pub fn setup_piece_queue(mut commands: Commands) {
 
 // 自动和手动移动四格骨牌
 pub fn move_piece(
-    mut query: Query<(&mut Block, &mut Transform, &Movable), With<PieceType>>,
+    mut query: Query<(&mut Block, &mut Transform, &mut Movable), With<PieceType>>,
+    board_query: Query<&Block, Without<PieceType>>,
     keyboard_input: Res<Input<KeyCode>>,
     mut manually_move_timer: ResMut<ManuallyMoveTimer>,
     mut auto_move_timer: ResMut<AutoMovePieceDownTimer>,
@@ -167,32 +168,84 @@ pub fn move_piece(
     manually_move_timer.0.tick(time.delta());
     auto_move_timer.0.tick(time.delta());
     let mut reset_manually_move_timer = false;
-    for (mut block, mut transform, movable) in &mut query {
-        // 防止一帧中向下移动两行
-        let mut already_down = false;
-        // 自动下移
-        if auto_move_timer.0.just_finished() && movable.can_down {
-            block.y -= 1;
-            audio.play(game_audios.drop.clone());
-            already_down = true;
+    //如果是按了空格键,
+    if keyboard_input.pressed(KeyCode::Space) {
+        let mut can_down = false;
+        // iter() and next() are about iterator, see https://github.com/Warrenren/inside-rust-std-library/blob/main/05-Iterator.md
+        // Some and None are about Option, see https://blog.csdn.net/JAN6055/article/details/125774473
+        match query.iter().next() {
+            // _tuple is about tuple, see https://www.twle.cn/c/yufei/rust/rust-basic-tuple.html
+            Some(_tuple) => {
+                can_down = _tuple.2.can_down;  
+            },
+            None => println!("No Blocks.. I have met once."),
         }
-        // 手动移动
-        if manually_move_timer.0.finished() {
-            if keyboard_input.pressed(KeyCode::Left) && movable.can_left {
-                block.x -= 1;
-                audio.play(game_audios.drop.clone());
-                reset_manually_move_timer = true;
-            } else if keyboard_input.pressed(KeyCode::Right) && movable.can_right {
-                block.x += 1;
-                audio.play(game_audios.drop.clone());
-                reset_manually_move_timer = true;
-            } else if keyboard_input.pressed(KeyCode::Down) && movable.can_down && !already_down {
-                block.y -= 1;
-                audio.play(game_audios.drop.clone());
-                reset_manually_move_timer = true;
+        while can_down {
+            for (mut block, _, _) in &mut query {
+                if block.y <= 0 {
+                    println!("Is this case appeared?");
+                    can_down = false;
+                    break;
+                }
+                block.y-=1;
+            }
+            if !can_down {
+                break;
+            }
+            // 检查是否碰到底部
+            for (block, _, mut movable) in &mut query {
+                if block.y == 0 {
+                    // 碰到下边界
+                    movable.can_down = false;
+                    can_down = false;
+                }
+            }
+            if !can_down {
+                break;
+            }
+            // 检查是否碰到下方积木
+            for (block, _, mut movable) in &mut query {
+                for board_block in &board_query {
+                    if board_block.x == block.x && block.y > 0 && board_block.y == block.y - 1 {
+                        // 碰到下方积木
+                        movable.can_down = false;
+                        can_down = false;
+                    }
+                }
             }
         }
-        transform.translation = block.translation();
+
+        audio.play(game_audios.drop.clone());
+        reset_manually_move_timer = true;
+    } else {
+
+        for (mut block, mut transform, movable) in &mut query {
+            // 防止一帧中向下移动两行
+            let mut already_down = false;
+            // 自动下移
+            if auto_move_timer.0.just_finished() && movable.can_down {
+                block.y -= 1;
+                audio.play(game_audios.drop.clone());
+                already_down = true;
+            }
+            // 手动移动
+            if manually_move_timer.0.finished() {
+                if keyboard_input.pressed(KeyCode::Left) && movable.can_left {
+                    block.x -= 1;
+                    audio.play(game_audios.drop.clone());
+                    reset_manually_move_timer = true;
+                } else if keyboard_input.pressed(KeyCode::Right) && movable.can_right {
+                    block.x += 1;
+                    audio.play(game_audios.drop.clone());
+                    reset_manually_move_timer = true;
+                } else if keyboard_input.pressed(KeyCode::Down) && movable.can_down && !already_down {
+                    block.y -= 1;
+                    audio.play(game_audios.drop.clone());
+                    reset_manually_move_timer = true;
+                }
+            }
+            transform.translation = block.translation();
+        }
     }
     if reset_manually_move_timer {
         manually_move_timer.0.reset();
